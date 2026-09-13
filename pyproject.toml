@@ -1,0 +1,39 @@
+[project]
+name = "my-chatbot-project"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "chromadb>=1.0.20",
+    "fastapi>=0.139.2",
+    "langchain>=0.3.27",
+    "langchain-chroma>=0.2.6",
+    "langchain-community>=0.4.1",
+    "langchain-core>=0.3.75",
+    "langchain-experimental>=0.4.2",
+    "langchain-google-genai>=2.1.10",
+    "langchain-groq>=0.3.7",
+    "langchain-huggingface>=0.2.1",
+    "langchain-mcp-adapters>=0.1.13",
+    "langchain-tavily>=0.2.13",
+    "langchain-text-splitters>=0.3.11",
+    "langgraph>=0.11.0",
+    "langgraph-api>=0.11.0",
+    "langgraph-cli[inmem]>=0.4.26",
+    "langsmith>=0.8.18",
+    "markdown>=3.8",
+    "mcp>=1.13.1",
+    "pydantic>=2.11.7",
+    "pypdf>=6.0.0",
+    "python-docx>=1.2.0",
+    "python-dotenv>=1.1.1",
+    "rich>=14.1.0",
+    "sentence-transformers>=5.1.0",
+    "streamlit>=1.59.2",
+    "tavily>=1.1.0",
+    "tavily-python>=0.7.13",
+    "tqdm>=4.67.1",
+    "typing-extensions>=4.15.0",
+    "unstructured>=0.18.14",
+]

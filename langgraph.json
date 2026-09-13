@@ -1,0 +1,8 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "aurion_agent": "./src/agent/agent.py:build_agent"
+  },
+  "env": ".env",
+  "_comment": "langgraph dev --allow-blocking"
+}
