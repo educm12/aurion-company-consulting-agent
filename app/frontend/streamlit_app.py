@@ -50,7 +50,7 @@ def enviar_mensaje(mensaje: str) -> str:
     resp = requests.post(
         f"{BACKEND_URL}/chat",
         json={"thread_id": st.session_state.thread_id, "mensaje": mensaje},
-        timeout=180,
+        timeout=300,
     )
     resp.raise_for_status()
     return resp.json()["respuesta"]
