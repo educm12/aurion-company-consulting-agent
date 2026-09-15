@@ -100,4 +100,4 @@ langgraph dev
 
 - Conversation state is kept in memory (`MemorySaver`); it resets when the server restarts.
 - MCP tools are restricted to read-only queries (`read_query`, `list_tables`, `describe_table`) — the agent cannot modify the database.
-- Non-employee users only get access to the web search subagent, enforced at the middleware/tool-access level, not just via prompting.
+- Non-employee users only get access to the company policy and web search subagent, enforced at the middleware/tool-access level, not just via prompting.

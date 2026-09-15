@@ -2,9 +2,9 @@
 agent.py
 Arquitectura multi-agente de Aurion Consulting:
 
-  - subagente_empresa: RAG (política) + SQL + riesgo de abandono.
+  - subagente_empresa: SQL + riesgo de abandono.
     Solo accesible si el usuario está verificado como empleado.
-  - subagente_web: búsqueda en internet.
+  - subagente_web: búsqueda en internet + RAG.
     Accesible siempre (empleados y usuarios externos).
   - agente orquestador: pide nombre y apellidos, verifica al usuario y
     decide, mediante middleware, a qué subagentes puede recurrir.
@@ -55,12 +55,11 @@ def get_llm(provider: str = "groq"):
     return init_chat_model(model_name, model_provider=provider, temperature=0)
 
 # ---------------------------------------------------------------------------
-# 1. Subagente de empresa (RAG + SQL + riesgo de abandono)
+# 1. Subagente de empresa (SQL + riesgo de abandono)
 # ---------------------------------------------------------------------------
 SUBAGENTE_EMPRESA_PROMPT = """\
-Eres un especialista en información interna de Aurion Consulting. \
-Respondes preguntas sobre políticas de empresa (usando \
-"consultar_politica_empresa") y datos de empleados/proyectos (usando \
+Eres un especialista en información interna de la base de datos de Aurion Consulting. \
+Respondes preguntas sobre datos de empleados/proyectos (usando \
 "read_query", "list_tables", "describe_table", "calculate_risk_leaving" \
 y "calculate_risk_leaving_all"). Combina ambas fuentes cuando la \
 pregunta lo requiera. Nunca inventes datos que no vengan de estas tools. \
@@ -75,25 +74,29 @@ async def build_company_subagent(provider: str = "groq"):
         t for t in sqlite_tools_all
         if t.name in {"read_query", "list_tables", "describe_table"}
     ]
-    tools = [get_policy_tool(), calculate_risk_leaving, calculate_risk_leaving_all, *sqlite_tools]
+    tools = [calculate_risk_leaving, calculate_risk_leaving_all, *sqlite_tools]
     return create_agent(model=llm, tools=tools, system_prompt=SUBAGENTE_EMPRESA_PROMPT)
 
 
 # ---------------------------------------------------------------------------
-# 2. Subagente de búsqueda web
+# 2. Subagente de búsqueda web + RAG
 # ---------------------------------------------------------------------------
 SUBAGENTE_WEB_PROMPT = """\
-Eres un especialista en búsqueda de información general en internet \
+Eres un especialista en búsqueda de información sobre la política de empresa \
+e información general en internet. Respondes preguntas sobre políticas de empresa \
+(usando "consultar_politica_empresa") y sobre información laboral en general \
 (legislación laboral, normas sociales, datos públicos, etc.), ajena a \
-la información interna de Aurion Consulting. Usa la tool "web_search" y \
-cita siempre la fuente (dominio/URL). Responde en español, de forma \
-clara y concisa.
+la información interna de Aurion Consulting (datos de empleados, proyectos, \
+riesgo de abandono). La consulta de políticas de empresa está disponible \
+tanto para empleados verificados como para usuarios externos. Usa la tool \
+"web_search" y cita siempre la fuente (dominio/URL). Responde en español, \
+de forma clara y concisa.
 """
-
 
 async def build_web_subagent(provider: str = "groq"):
     llm = get_llm(provider)
-    return create_agent(model=llm, tools=[web_search], system_prompt=SUBAGENTE_WEB_PROMPT)
+    tools = [get_policy_tool(), web_search]
+    return create_agent(model=llm, tools=tools, system_prompt=SUBAGENTE_WEB_PROMPT)
 
 
 # ---------------------------------------------------------------------------
@@ -170,10 +173,10 @@ def build_middleware(consultar_informacion_empresa, buscar_informacion_internet)
             un empleado verificado de la empresa.
 
             Tienes acceso a:
-            - "consultar_informacion_empresa": políticas internas, datos de empleados, \
-            proyectos y riesgo de abandono.
-            - "buscar_informacion_internet": información general externa (legislación, \
-            normas del mercado laboral, etc.).
+            - "consultar_informacion_empresa": datos de empleados, proyectos y \
+            riesgo de abandono (información interna sensible).
+            - "buscar_informacion_internet": política de empresa e información \
+            general externa (legislación, normas del mercado laboral, etc.).
 
             Elige la fuente adecuada según la pregunta, y combina ambas si la pregunta \
             lo requiere. Responde en español, de forma clara y concisa.
@@ -191,10 +194,16 @@ def build_middleware(consultar_informacion_empresa, buscar_informacion_internet)
             En cuanto el usuario te dé su nombre y apellidos, llama a la tool \
             "verificar_empleado" con esos datos.
 
+            Mientras no esté verificado, puedes ayudarle con la tool \
+            "buscar_informacion_internet": tanto para consultar la política de \
+            empresa de Aurion Consulting como para preguntas generales \
+            (legislación laboral, normas del mercado laboral, datos públicos, etc.).
+
             Si la persona resulta NO ser empleada de Aurion Consulting, informa de \
-            que solo puedes ayudarle con búsquedas de información general en \
-            internet (tool "buscar_informacion_internet"), no con información \
-            interna de la empresa. No inventes ni reveles ningún dato interno.
+            que puedes ayudarle con la política de empresa y con búsquedas de \
+            información general en internet, pero no con información interna \
+            de la empresa (datos de empleados, proyectos, riesgo de abandono, etc.). \
+            No inventes ni reveles ningún dato interno.
 
             Responde en español, de forma clara y concisa.
             """
