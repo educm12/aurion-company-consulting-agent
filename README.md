@@ -139,6 +139,21 @@ Here are some prompt examples to ask the chatbot:
 
 "Dame un resumen de la situación de Beatriz Salas Núñez: departamento, antigüedad, días de vacaciones disfrutados y pendientes, y si puede teletrabajar según su puesto."
 
+**9. Búsqueda web (información general, ajena a Aurion Consulting)**
+
+"¿Cuántos días de permiso por paternidad establece la ley en España actualmente?"
+"¿Cuál es el salario mínimo interprofesional este año?"
+"¿Qué dice el Estatuto de los Trabajadores sobre el periodo de prueba?"
+
+**10. Riesgo de abandono (calculate_risk_leaving)**
+
+"¿Cuál es el riesgo de abandono de Javier Ortega Beltrán?"
+"¿Beatriz Salas Núñez tiene riesgo de irse de la empresa? ¿Por qué?"
+
+**11. Riesgo de abandono agregado (calculate_risk_leaving_all)**
+
+"¿Qué empleados tienen mayor riesgo de abandono en este momento?"
+"Dame un listado de los empleados con riesgo de abandono alto, ordenados de mayor a menor."
 
 ## Notes
 
