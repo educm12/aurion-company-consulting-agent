@@ -9,7 +9,7 @@ The assistant can answer questions that require combining two sources of informa
 - *"How many vacation days does Marta have left, based on her seniority?"*
 - *"Can María bring her dog to the office, and how many vacation days has she taken this year?"*
 
-It also verifies the identity of the person chatting: employees get full access (company policies + database + attrition risk), while non-employees are limited to general web search.
+It also verifies the identity of the person chatting: employees get full access (company policies + database + attrition risk), while non-employees are limited to general web search and company policies.
 
 ## Architecture
 
