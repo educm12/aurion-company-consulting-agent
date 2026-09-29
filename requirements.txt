@@ -50,11 +50,18 @@ langchain-mcp-adapters>=0.1.13
 uv>=0.11.0
 
 # ==========================
+# Redis
+# ==========================
+redisvl>=0.4.0
+redis>=5.0.0
+
+# ==========================
 # Utilidades
 # ==========================
 python-dotenv>=1.1.1
 pydantic>=2.11.7
 typing-extensions>=4.15.0
+matplotlib
 
 # ==========================
 # App

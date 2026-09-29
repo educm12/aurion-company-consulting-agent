@@ -15,19 +15,6 @@ venv/
 env/
 ENV/
 
-# IDE and Editor files
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
-.project
-.pydevproject
-.settings/
-*.sublime-project
-*.sublime-workspace
-
 # Environment variables
 .env
 .env.local
@@ -39,48 +26,25 @@ ENV/
 *.db
 resources/chroma_db/
 
-# OS files
-Thumbs.db
-.DS_Store
-*.log
-logs/
 
 # Dependencies
 *.pip
 pip-log.txt
 pip-delete-this-directory.txt
 
-# Jupyter Notebook
-.ipynb_checkpoints/
-*.ipynb
-
-# Coverage reports
-htmlcov/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
 
 # MyPy
 .mypy_cache/
 .dmypy.json
 dmypy.json
 
-# Pyre type checker
-.pyre/
-
 # Temporary files
 *.tmp
 *.temp
 *.bak
 
-# Node modules (if any frontend dependencies)
-node_modules/
-npm-debug.log
-yarn-error.log
-
 # Langgraph
 .langgraph_api/
+
+# Evaluation results
+src/eval/results/

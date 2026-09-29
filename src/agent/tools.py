@@ -235,7 +235,7 @@ def web_search(query: str) -> Dict[str, Any]:
     - "¿Es legal que una empresa contrate a un menor de edad?"
     - "¿Qué dice la ley sobre el teletrabajo en España?"
     - "¿Es habitual ir en chándal a una oficina?"
-
+    
     NO uses esta tool si la pregunta es sobre las políticas, normas o
     procedimientos INTERNOS de Aurion Consulting (vacaciones, teletrabajo,
     código de vestimenta, mascotas, permisos, etc.) — para eso usa siempre

@@ -2,9 +2,9 @@
 agent.py
 Arquitectura multi-agente de Aurion Consulting:
 
-  - subagente_empresa: SQL + riesgo de abandono.
+  - subagente_empresa: SQL + riesgo de abandono + política de empresa (RAG).
     Solo accesible si el usuario está verificado como empleado.
-  - subagente_web: búsqueda en internet + RAG.
+  - subagente_web: búsqueda en internet.
     Accesible siempre (empleados y usuarios externos).
   - agente orquestador: pide nombre y apellidos, verifica al usuario y
     decide, mediante middleware, a qué subagentes puede recurrir.
@@ -35,6 +35,8 @@ from src.agent.tools import (
     web_search,
 )
 
+import contextvars
+
 load_dotenv()
 
 
@@ -54,49 +56,77 @@ def get_llm(provider: str = "groq"):
     model_name = PROVIDER_DEFAULTS[provider]
     return init_chat_model(model_name, model_provider=provider, temperature=0)
 
+
+# Permite capturar, de forma opcional, los mensajes internos de los
+# subagentes cuando algo externo (p.ej. el runner de evaluación) lo
+# solicita. Si nadie lo activa (valor por defecto None), no cambia nada
+# del comportamiento normal del chatbot.
+_subagent_capture: contextvars.ContextVar[list | None] = contextvars.ContextVar(
+    "_subagent_capture", default=None
+)
+
+
 # ---------------------------------------------------------------------------
-# 1. Subagente de empresa (SQL + riesgo de abandono)
+# 1. Subagente de empresa (SQL + riesgo de abandono + política)
 # ---------------------------------------------------------------------------
 SUBAGENTE_EMPRESA_PROMPT = """\
-Eres un especialista en información interna de la base de datos de Aurion Consulting. \
-Respondes preguntas sobre datos de empleados/proyectos (usando \
-"read_query", "list_tables", "describe_table", "calculate_risk_leaving" \
-y "calculate_risk_leaving_all"). Combina ambas fuentes cuando la \
-pregunta lo requiera. Nunca inventes datos que no vengan de estas tools. \
+Eres un especialista en información interna de Aurion Consulting. Respondes \
+preguntas sobre datos de empleados/proyectos y política de empresa Para preguntas \
+sobre la política de empresa (dias de vacaciones, teletrabajo, vestimenta, etc), utiliza la tool \
+"consultar_politica_empresa". Para preguntas sobre datos de empleados/proyectos usa \
+"read_query", "list_tables" o "describe_table". Y para preguntas sobre el riesgo de abandono \
+de empleados usa "calculate_risk_leaving" y "calculate_risk_leaving_all". Combina las fuentes \
+cuando la pregunta lo requiera. Nunca inventes datos que no vengan de estas tools. \
 Responde en español, de forma clara y concisa.
 """
 
 
 async def build_company_subagent(provider: str = "groq"):
     llm = get_llm(provider)
+
     sqlite_tools_all = await get_sqlite_mcp_tools()
     sqlite_tools = [
         t for t in sqlite_tools_all
         if t.name in {"read_query", "list_tables", "describe_table"}
     ]
-    tools = [calculate_risk_leaving, calculate_risk_leaving_all, *sqlite_tools]
-    return create_agent(model=llm, tools=tools, system_prompt=SUBAGENTE_EMPRESA_PROMPT)
+
+    tools = [
+        calculate_risk_leaving,
+        calculate_risk_leaving_all,
+        get_policy_tool(),
+        *sqlite_tools,
+    ]
+
+    return create_agent(
+        model=llm,
+        tools=tools,
+        system_prompt=SUBAGENTE_EMPRESA_PROMPT,
+    )
 
 
 # ---------------------------------------------------------------------------
 # 2. Subagente de búsqueda web + RAG
 # ---------------------------------------------------------------------------
 SUBAGENTE_WEB_PROMPT = """\
-Eres un especialista en búsqueda de información sobre la política de empresa \
-e información general en internet. Respondes preguntas sobre políticas de empresa \
-(usando "consultar_politica_empresa") y sobre información laboral en general \
+Eres un especialista en búsqueda de información general en internet. \
+Respondes preguntas sobre información laboral en general \
 (legislación laboral, normas sociales, datos públicos, etc.), ajena a \
 la información interna de Aurion Consulting (datos de empleados, proyectos, \
-riesgo de abandono). La consulta de políticas de empresa está disponible \
-tanto para empleados verificados como para usuarios externos. Usa la tool \
+riesgo de abandono y política interna de empresa). Usa la tool \
 "web_search" y cita siempre la fuente (dominio/URL). Responde en español, \
 de forma clara y concisa.
 """
 
+
 async def build_web_subagent(provider: str = "groq"):
     llm = get_llm(provider)
-    tools = [get_policy_tool(), web_search]
-    return create_agent(model=llm, tools=tools, system_prompt=SUBAGENTE_WEB_PROMPT)
+    tools = [web_search]
+
+    return create_agent(
+        model=llm,
+        tools=tools,
+        system_prompt=SUBAGENTE_WEB_PROMPT,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +140,7 @@ async def build_subagent_tools(provider: str = "groq"):
     async def consultar_informacion_empresa(pregunta: str) -> str:
         """
         Consulta al especialista en información INTERNA de Aurion
-        Consulting: políticas de empresa, datos de empleados, proyectos
+        Consulting: Datos de empleados, proyectos, política de empresa
         y riesgo de abandono. Úsala solo si el usuario ha sido verificado
         como empleado.
 
@@ -121,14 +151,19 @@ async def build_subagent_tools(provider: str = "groq"):
         result = await company_subagent.ainvoke(
             {"messages": [{"role": "user", "content": pregunta}]}
         )
+
+        capture = _subagent_capture.get()
+        if capture is not None:
+            capture.append(("consultar_informacion_empresa", result["messages"]))
+
         return result["messages"][-1].content
 
     @tool
     async def buscar_informacion_internet(pregunta: str) -> str:
         """
         Consulta al especialista en búsqueda de información GENERAL en
-        internet (no específica de Aurion Consulting): legislación,
-        normas del mercado laboral, datos públicos, etc.
+        internet (legislación, normas del mercado laboral, datos públicos,
+        etc.).
 
         Args:
             pregunta: la pregunta del usuario, tal cual.
@@ -136,6 +171,11 @@ async def build_subagent_tools(provider: str = "groq"):
         result = await web_subagent.ainvoke(
             {"messages": [{"role": "user", "content": pregunta}]}
         )
+
+        capture = _subagent_capture.get()
+        if capture is not None:
+            capture.append(("buscar_informacion_internet", result["messages"]))
+
         return result["messages"][-1].content
 
     return consultar_informacion_empresa, buscar_informacion_internet
@@ -155,9 +195,16 @@ def build_middleware(consultar_informacion_empresa, buscar_informacion_internet)
         verificado = request.state.get("verificado")
 
         if verificado:
-            tools = [verificar_empleado, consultar_informacion_empresa, buscar_informacion_internet]
+            tools = [
+                verificar_empleado,
+                consultar_informacion_empresa,
+                buscar_informacion_internet,
+            ]
         else:
-            tools = [verificar_empleado, buscar_informacion_internet]
+            tools = [
+                verificar_empleado,
+                buscar_informacion_internet,
+            ]
 
         request = request.override(tools=tools)
         return await handler(request)
@@ -173,10 +220,10 @@ def build_middleware(consultar_informacion_empresa, buscar_informacion_internet)
             un empleado verificado de la empresa.
 
             Tienes acceso a:
-            - "consultar_informacion_empresa": datos de empleados, proyectos y \
-            riesgo de abandono (información interna sensible).
-            - "buscar_informacion_internet": política de empresa e información \
-            general externa (legislación, normas del mercado laboral, etc.).
+            - "consultar_informacion_empresa": datos de empleados, proyectos, \
+            riesgo de abandono y política de empresa (información interna sensible).
+            - "buscar_informacion_internet": información general externa \
+            (legislación, normas del mercado laboral, etc.).
 
             Elige la fuente adecuada según la pregunta, y combina ambas si la pregunta \
             lo requiere. Responde en español, de forma clara y concisa.
@@ -195,14 +242,13 @@ def build_middleware(consultar_informacion_empresa, buscar_informacion_internet)
             "verificar_empleado" con esos datos.
 
             Mientras no esté verificado, puedes ayudarle con la tool \
-            "buscar_informacion_internet": tanto para consultar la política de \
-            empresa de Aurion Consulting como para preguntas generales \
+            "buscar_informacion_internet" para preguntas generales \
             (legislación laboral, normas del mercado laboral, datos públicos, etc.).
 
             Si la persona resulta NO ser empleada de Aurion Consulting, informa de \
-            que puedes ayudarle con la política de empresa y con búsquedas de \
-            información general en internet, pero no con información interna \
-            de la empresa (datos de empleados, proyectos, riesgo de abandono, etc.). \
+            que puedes ayudarle con búsquedas de información general en internet, \
+            pero no con información interna de la empresa (política de empresa, \
+            datos de empleados, proyectos, riesgo de abandono, etc.). \
             No inventes ni reveles ningún dato interno.
 
             Responde en español, de forma clara y concisa.
@@ -216,18 +262,32 @@ def build_middleware(consultar_informacion_empresa, buscar_informacion_internet)
 # ---------------------------------------------------------------------------
 async def build_agent(provider: str = "groq"):
     llm = get_llm(provider)
-    consultar_informacion_empresa, buscar_informacion_internet = await build_subagent_tools(provider)
-    middleware = build_middleware(consultar_informacion_empresa, buscar_informacion_internet)
+
+    consultar_informacion_empresa, buscar_informacion_internet = (
+        await build_subagent_tools(provider)
+    )
+
+    middleware = build_middleware(
+        consultar_informacion_empresa,
+        buscar_informacion_internet,
+    )
+
     checkpointer = MemorySaver()
 
     agent = create_agent(
         model=llm,
-        tools=[verificar_empleado, consultar_informacion_empresa, buscar_informacion_internet],
+        tools=[
+            verificar_empleado,
+            consultar_informacion_empresa,
+            buscar_informacion_internet,
+        ],
         state_schema=EmployeeState,
         middleware=middleware,
         checkpointer=checkpointer,
     )
+
     return agent
+
 
 # ---------------------------------------------------------------------------
 # Prueba rápida manual: python -m src.agent.agent
@@ -243,8 +303,13 @@ if __name__ == "__main__":
             "Hola, soy Marta Iglesias Roldán",
             "¿Cuántos días de vacaciones me quedan?",
         ]
+
         for p in preguntas:
-            result = await agent.ainvoke({"messages": [{"role": "user", "content": p}]}, config=config)
+            result = await agent.ainvoke(
+                {"messages": [{"role": "user", "content": p}]},
+                config=config,
+            )
+
             print(f"Tú: {p}")
             print(f"Asistente: {result['messages'][-1].content}\n")
 
