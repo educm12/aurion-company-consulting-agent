@@ -60,16 +60,14 @@ DATASET = [
     {
         "id": "q06",
         "category": "hybrid",
-        "question": "¿Puede Lucía Herrero Campos traer a su gato a la oficina?",
+        "question": "¿Puede Sara Bermejo Vega traer a su gato a la oficina?",
         "expected_answer": (
-            "Sí: Lucía trabaja en Tecnología, uno de los departamentos con zona "
-            "pet-friendly, y según la base de datos tiene un gato."
+            "Sí, con condiciones: trabaja en Tecnología (zona pet-friendly), su modalidad "
+            "es híbrida con base en Barcelona, una de las dos oficinas con esa zona, y la "
+            "base de datos indica que tiene un gato. Debe avisar con un día de antelación "
+            "y puede hacerlo como máximo dos días por semana, en sus días presenciales."
         ),
-        "context": (
-            "Manual sección 10 (mascotas permitidas en Tecnología y Operaciones, no en "
-            "Comercial/Legal/Finanzas/Atención al Cliente) + tabla empleados "
-            "(departamento y tiene_mascota/tipo_mascota de Lucía)."
-        ),
+        "context": "Manual sección 10 + tabla empleados (Sara Bermejo Vega: Tecnología, Híbrido, Barcelona, gato).",
     },
     {
         "id": "q07",

@@ -52,6 +52,7 @@ MCP_SERVERS_CONFIG = {
     "aurion_sqlite": {
         "command": "uvx",
         "args": [
+            "--with", "pydantic<2.14",
             "--with", "mcp<1.10",
             "mcp-server-sqlite",
             "--db-path",

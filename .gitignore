@@ -48,3 +48,4 @@ dmypy.json
 
 # Evaluation results
 src/eval/results/
+.deepeval/

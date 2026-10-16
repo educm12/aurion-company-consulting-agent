@@ -6,7 +6,8 @@ Script principal de evaluación: python -m src.eval.final_evaluation
 1. Carga el dataset.
 2. Ejecuta cada pregunta contra el chatbot (runner.py).
 3. Obtiene respuesta y contexto RAG realmente usado.
-4. Ejecuta el LLM-as-judge (evaluators.py) sobre cada resultado.
+4. Ejecuta el evaluador DeepEval (evaluators.py) sobre cada resultado,
+   aplicando las métricas que corresponden a la categoría de la pregunta.
 5. Calcula métricas agregadas (globales y por categoría).
 6. Guarda un CSV con el detalle fila a fila.
 7. Identifica las peores respuestas.
@@ -23,7 +24,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 from src.eval.dataset import load_dataset
-from src.eval.evaluators import classify_failure, judge_answer
+from src.eval.evaluators import OK_THRESHOLD, classify_failure, judge_answer
 from src.eval.runner import run_question
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
@@ -36,6 +37,18 @@ EVAL_LOGIN_MESSAGE = "Hola, soy Beatriz Salas Núñez."
 
 PROVIDER = "groq"  # proveedor del agente evaluado; el juez usa el suyo propio
 
+# Dimensiones puntuadas por DeepEval (0-1). Cada fila solo tiene valor en las
+# que aplican a su categoría; overall_score es la media de las que entran en
+# el overall (contextual_relevancy es diagnóstico y NO entra).
+SCORE_DIMS = [
+    "correctness",
+    "relevance",
+    "faithfulness",
+    "completeness",
+    "appropriate_behavior",
+    "contextual_relevancy",
+]
+
 
 @dataclass
 class EvalRow:
@@ -44,11 +57,13 @@ class EvalRow:
     question: str
     expected_answer: str | None
     model_answer: str
-    correctness: int
-    relevance: int
-    faithfulness: int
-    completeness: int
-    overall_score: int
+    correctness: float | None
+    relevance: float | None
+    faithfulness: float | None
+    completeness: float | None
+    appropriate_behavior: float | None
+    contextual_relevancy: float | None
+    overall_score: float
     context_sufficient: bool
     rag_tool_called: bool
     tools_called: str
@@ -70,6 +85,8 @@ async def evaluate_item(item: dict) -> EvalRow:
         reference_context=item.get("context"),
         context_used=run_result.context_used,
         tools_called=run_result.tools_called,
+        category=item["category"],
+        sql_context=run_result.sql_context,
     )
 
     failure_type = classify_failure(scores, run_result.rag_tool_called, item["category"])
@@ -84,6 +101,8 @@ async def evaluate_item(item: dict) -> EvalRow:
         relevance=scores.relevance,
         faithfulness=scores.faithfulness,
         completeness=scores.completeness,
+        appropriate_behavior=scores.appropriate_behavior,
+        contextual_relevancy=scores.contextual_relevancy,
         overall_score=scores.overall,
         context_sufficient=scores.context_sufficient,
         rag_tool_called=run_result.rag_tool_called,
@@ -104,7 +123,7 @@ async def run_evaluation() -> list[EvalRow]:
             print(f"  ERROR en '{item['id']}': {e}")
             continue
         rows.append(row)
-        print(f"  overall={row.overall_score}  failure={row.failure_type}")
+        print(f"  overall={row.overall_score:.2f}  failure={row.failure_type}")
     return rows
 
 
@@ -125,19 +144,25 @@ def save_csv(rows: list[EvalRow], path: Path):
 # Métricas agregadas
 # ---------------------------------------------------------------------------
 def print_aggregate_metrics(rows: list[EvalRow]):
-    dims = ["correctness", "relevance", "faithfulness", "completeness", "overall_score"]
+    dims = SCORE_DIMS + ["overall_score"]
 
     print("\n" + "=" * 60)
-    print("MÉTRICAS AGREGADAS (global)")
+    print("MÉTRICAS AGREGADAS (global, escala 0-1)")
     print("=" * 60)
     for dim in dims:
-        values = [getattr(r, dim) for r in rows]
-        print(f"  {dim:15s}: media={statistics.mean(values):.2f}  min={min(values)}  max={max(values)}")
+        values = [getattr(r, dim) for r in rows if getattr(r, dim) is not None]
+        if not values:
+            print(f"  {dim:22s}: (no evaluada en ninguna fila)")
+            continue
+        print(
+            f"  {dim:22s}: media={statistics.mean(values):.2f}  "
+            f"min={min(values):.2f}  max={max(values):.2f}  n={len(values)}"
+        )
 
     retrieval_failures = sum(1 for r in rows if r.failure_type == "retrieval_failure")
     generation_failures = sum(1 for r in rows if r.failure_type == "generation_failure")
     ok = sum(1 for r in rows if r.failure_type is None)
-    print(f"\n  OK (overall>=4):      {ok}/{len(rows)}")
+    print(f"\n  OK (overall>={OK_THRESHOLD:.2f}): {ok}/{len(rows)}")
     print(f"  Retrieval failures:   {retrieval_failures}/{len(rows)}")
     print(f"  Generation failures:  {generation_failures}/{len(rows)}")
 
@@ -157,7 +182,7 @@ def print_worst_answers(rows: list[EvalRow], n: int = 5):
     print("=" * 60)
     worst = sorted(rows, key=lambda r: r.overall_score)[:n]
     for r in worst:
-        print(f"\n[{r.id}] overall={r.overall_score}  failure={r.failure_type}  categoría={r.category}")
+        print(f"\n[{r.id}] overall={r.overall_score:.2f}  failure={r.failure_type}  categoría={r.category}")
         print(f"  Pregunta:  {r.question}")
         print(f"  Respuesta: {r.model_answer[:200]}...")
         print(f"  Motivo:    {r.reasoning}")
@@ -167,16 +192,19 @@ def print_worst_answers(rows: list[EvalRow], n: int = 5):
 # Gráficas
 # ---------------------------------------------------------------------------
 def generate_charts(rows: list[EvalRow], timestamp: str):
-    dims = ["correctness", "relevance", "faithfulness", "completeness", "overall_score"]
+    dims = SCORE_DIMS + ["overall_score"]
 
-    # 1. Barras: media por dimensión
-    fig, ax = plt.subplots(figsize=(7, 4))
-    means = [statistics.mean(getattr(r, d) for r in rows) for d in dims]
+    # 1. Barras: media por dimensión (solo sobre las filas donde aplica)
+    fig, ax = plt.subplots(figsize=(9, 4.5))
+    means = []
+    for d in dims:
+        vals = [getattr(r, d) for r in rows if getattr(r, d) is not None]
+        means.append(statistics.mean(vals) if vals else 0.0)
     ax.bar(dims, means, color="#4C72B0")
-    ax.set_ylim(0, 5)
-    ax.set_ylabel("Puntuación media (1-5)")
+    ax.set_ylim(0, 1)
+    ax.set_ylabel("Puntuación media (0-1)")
     ax.set_title("Puntuación media por dimensión")
-    plt.xticks(rotation=20)
+    plt.xticks(rotation=25, ha="right")
     plt.tight_layout()
     fig.savefig(RESULTS_DIR / f"dimensiones_{timestamp}.png")
     plt.close(fig)
@@ -186,8 +214,8 @@ def generate_charts(rows: list[EvalRow], timestamp: str):
     cat_means = [statistics.mean(r.overall_score for r in rows if r.category == c) for c in categories]
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.bar(categories, cat_means, color="#55A868")
-    ax.set_ylim(0, 5)
-    ax.set_ylabel("Overall medio")
+    ax.set_ylim(0, 1)
+    ax.set_ylabel("Overall medio (0-1)")
     ax.set_title("Overall medio por categoría de pregunta")
     plt.xticks(rotation=25, ha="right")
     plt.tight_layout()
@@ -199,7 +227,11 @@ def generate_charts(rows: list[EvalRow], timestamp: str):
     retrieval = sum(1 for r in rows if r.failure_type == "retrieval_failure")
     generation = sum(1 for r in rows if r.failure_type == "generation_failure")
     fig, ax = plt.subplots(figsize=(5, 5))
-    labels_vals = [(l, v) for l, v in [("OK", ok), ("Retrieval failure", retrieval), ("Generation failure", generation)] if v > 0]
+    labels_vals = [
+        (l, v)
+        for l, v in [("OK", ok), ("Retrieval failure", retrieval), ("Generation failure", generation)]
+        if v > 0
+    ]
     ax.pie(
         [v for _, v in labels_vals],
         labels=[l for l, _ in labels_vals],
