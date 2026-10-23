@@ -22,11 +22,12 @@ from src.cache.config import (
     REDIS_URL,
 )
 
-_vectorizer = HFTextVectorizer(EMBEDDING_MODEL)
 _cache = None
 
 if CACHE_ENABLED:
     try:
+        _vectorizer = HFTextVectorizer(EMBEDDING_MODEL)
+
         _cache = SemanticCache(
             name=CACHE_INDEX_NAME,
             redis_url=REDIS_URL,
