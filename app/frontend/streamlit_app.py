@@ -35,7 +35,7 @@ def hacer_login(nombre: str, apellidos: str, proveedor: str):
     resp = requests.post(
         f"{BACKEND_URL}/auth/login",
         json={"nombre": nombre, "apellidos": apellidos, "proveedor": proveedor},
-        timeout=30,
+        timeout=120,
     )
     resp.raise_for_status()
     data = resp.json()
