@@ -16,24 +16,33 @@ from redisvl.utils.vectorize import HFTextVectorizer
 
 from src.cache.config import (
     CACHE_DISTANCE_THRESHOLD,
+    CACHE_ENABLED,
     CACHE_INDEX_NAME,
     EMBEDDING_MODEL,
     REDIS_URL,
 )
 
 _vectorizer = HFTextVectorizer(EMBEDDING_MODEL)
+_cache = None
 
-_cache = SemanticCache(
-    name=CACHE_INDEX_NAME,
-    redis_url=REDIS_URL,
-    distance_threshold=CACHE_DISTANCE_THRESHOLD,
-    ttl=3600,  # se reseta cada 1h si no se especifíca
-    vectorizer=_vectorizer,
-    filterable_fields=[
-        {"name": "scope", "type": "tag"},      # emp:<id> o "public" -- filtro EXACTO
-        {"name": "category", "type": "tag"},    # opcional, para políticas de TTL futuras
-    ],
-)
+if CACHE_ENABLED:
+    try:
+        _cache = SemanticCache(
+            name=CACHE_INDEX_NAME,
+            redis_url=REDIS_URL,
+            distance_threshold=CACHE_DISTANCE_THRESHOLD,
+            ttl=3600,  # se reseta cada 1h si no se especifíca
+            vectorizer=_vectorizer,
+            filterable_fields=[
+                {"name": "scope", "type": "tag"},      # emp:<id> o "public" -- filtro EXACTO
+                {"name": "category", "type": "tag"},    # opcional, para políticas de TTL futuras
+            ],
+        )
+    except Exception as e:
+        print(f"[WARN] No se pudo inicializar la caché semántica (Redis no disponible). Caché desactivada. ({e})")
+        _cache = None
+else:
+    print("[INFO] Caché semántica desactivada por configuración (CACHE_ENABLED=false).")
 
 
 @dataclass
@@ -53,33 +62,46 @@ def build_scope(empleado_id: int | None, verificado: bool) -> str:
 
 
 def lookup(question: str, scope: str) -> CacheLookupResult:
+    if _cache is None:
+        return CacheLookupResult(hit=False, answer=None, similarity_score=None, latency_ms=0.0)
+
     from redisvl.query.filter import Tag
 
     start = time.perf_counter()
-    results = _cache.check(
-        prompt=question,
-        filter_expression=(Tag("scope") == scope),
-        num_results=1,
-    )
-    latency_ms = (time.perf_counter() - start) * 1000
+    try:
+        results = _cache.check(
+            prompt=question,
+            filter_expression=(Tag("scope") == scope),
+            num_results=1,
+        )
+        latency_ms = (time.perf_counter() - start) * 1000
 
-    if not results:
-        return CacheLookupResult(hit=False, answer=None, similarity_score=None, latency_ms=latency_ms)
+        if not results:
+            return CacheLookupResult(hit=False, answer=None, similarity_score=None, latency_ms=latency_ms)
 
-    top = results[0]
-    similarity = 1 - top["vector_distance"]
-    return CacheLookupResult(
-        hit=True,
-        answer=top["response"],
-        similarity_score=round(similarity, 4),
-        latency_ms=latency_ms,
-    )
+        top = results[0]
+        similarity = 1 - top["vector_distance"]
+        return CacheLookupResult(
+            hit=True,
+            answer=top["response"],
+            similarity_score=round(similarity, 4),
+            latency_ms=latency_ms,
+        )
+    except Exception as e:
+        print(f"[WARN] Error en lookup de caché semántica. Se ignora. ({e})")
+        return CacheLookupResult(hit=False, answer=None, similarity_score=None, latency_ms=0.0)
 
 
 def store(question: str, answer: str, scope: str, category: str | None = None, ttl: int | None = None) -> None:
-    _cache.store(
-        prompt=question,
-        response=answer,
-        filters={"scope": scope, "category": category or "unknown"},
-        ttl=ttl  # None -> usa el TTL global por defecto de la instancia
-    )
+    if _cache is None:
+        return
+
+    try:
+        _cache.store(
+            prompt=question,
+            response=answer,
+            filters={"scope": scope, "category": category or "unknown"},
+            ttl=ttl,  # None -> usa el TTL global por defecto de la instancia
+        )
+    except Exception as e:
+        print(f"[WARN] Error al guardar en caché semántica. Se ignora. ({e})")

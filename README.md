@@ -115,7 +115,12 @@ my-chatbot-project/
 
 ## Running the app
 
-**Web app** (run both from the project root, in separate terminals)
+**Web app (option 1)** 
+```bash
+python main.py
+```
+
+**Web app (option 2)** (run both from the project root, in separate terminals)
 ```bash
 uvicorn app.backend.main:app --reload --port 8000
 streamlit run app/frontend/streamlit_app.py
